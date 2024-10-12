@@ -31,6 +31,7 @@ class TokenScanner
         $units = [];
         $uses = [];
         $isInterface = false;
+        $isAbstractFunction = false;
         $namespace = '';
         $currentName = null;
         $unitLevel = 0;
@@ -49,6 +50,15 @@ class TokenScanner
         };
 
         while (false !== ($token = $this->nextToken($tokens))) {
+            // named arguments
+            $nextToken = $this->nextToken($tokens);
+            if (($token !== '}' && $nextToken === ':') || $nextToken === false) {
+                continue;
+            }
+            do {
+                $prevToken = prev($tokens);
+            } while ($token !== $prevToken);
+
             if (!is_array($token)) {
                 switch ($token) {
                     case '{':
@@ -65,6 +75,12 @@ class TokenScanner
             }
 
             switch ($token[0]) {
+                case T_ABSTRACT:
+                    if (count($stack)) {
+                        $isAbstractFunction = true;
+                    }
+                    break;
+
                 case T_CURLY_OPEN:
                 case T_DOLLAR_OPEN_CURLY_BRACES:
                     $stack[] = $token[1];
@@ -151,7 +167,7 @@ class TokenScanner
 
                     if (($unitLevel + 1) == count($stack) && $currentName) {
                         $units[$currentName]['methods'][] = $token[1];
-                        if (!$isInterface) {
+                        if (!$isInterface && !$isAbstractFunction) {
                             // more nesting
                             $units[$currentName]['properties'] = array_merge(
                                 $units[$currentName]['properties'],
@@ -161,6 +177,7 @@ class TokenScanner
                         } else {
                             // no function body
                             $this->skipTo($tokens, ';');
+                            $isAbstractFunction = false;
                         }
                     }
                     break;
@@ -189,14 +206,13 @@ class TokenScanner
             $lastToken = $token;
         }
 
-        /* @phpstan-ignore-next-line */
         return $units;
     }
 
     /**
      * Get the next token that is not whitespace or comment.
      *
-     * @return string|array
+     * @return string|array|false
      */
     protected function nextToken(array &$tokens)
     {
@@ -360,7 +376,6 @@ class TokenScanner
             }
         }
 
-        /* @phpstan-ignore-next-line */
         return $properties;
     }
 }

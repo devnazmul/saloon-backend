@@ -14,9 +14,11 @@ use OpenApi\Generator;
 class Examples extends AbstractAnnotation
 {
     /**
+     * The relative or absolute path to an example.
+     *
      * @see [Using refs](https://swagger.io/docs/specification/using-ref/)
      *
-     * @var string|object
+     * @var string|class-string|object
      */
     public $ref = Generator::UNDEFINED;
 
@@ -80,6 +82,7 @@ class Examples extends AbstractAnnotation
 
     public static $_parents = [
         Components::class,
+        Schema::class,
         Parameter::class,
         PathParameter::class,
         MediaType::class,

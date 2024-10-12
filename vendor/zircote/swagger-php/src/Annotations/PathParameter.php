@@ -6,6 +6,8 @@
 
 namespace OpenApi\Annotations;
 
+use OpenApi\Annotations as OA;
+
 /**
  * A `@OA\Request` path parameter.
  *
@@ -15,6 +17,7 @@ class PathParameter extends Parameter
 {
     /**
      * @inheritdoc
+     * This takes 'path' as the default location.
      */
     public $in = 'path';
 
@@ -22,4 +25,9 @@ class PathParameter extends Parameter
      * @inheritdoc
      */
     public $required = true;
+
+    /**
+     * @inheritdoc
+     */
+    public static $_required = ['name'];
 }

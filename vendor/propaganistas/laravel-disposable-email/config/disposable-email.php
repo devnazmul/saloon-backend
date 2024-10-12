@@ -4,18 +4,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | JSON Source URL
+    | JSON Source URLs
     |--------------------------------------------------------------------------
     |
-    | The source URL yielding a list of disposable email domains. Change this
-    | to whatever source you like. Just make sure it returns a JSON array.
+    | The source URLs yielding a list of disposable email domains. Change these
+    | to whatever source you like. Just make sure they all return a JSON array.
     |
     | A sensible default is provided using jsDelivr's services. jsDelivr is
     | a free service, so there are no uptime or support guarantees.
     |
     */
 
-    'source' => 'https://cdn.jsdelivr.net/gh/disposable/disposable-email-domains@master/domains.json',
+    'sources' => [
+        'https://cdn.jsdelivr.net/gh/disposable/disposable-email-domains@master/domains.json',
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -46,6 +48,20 @@ return [
     */
 
     'storage' => storage_path('framework/disposable_domains.json'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Whitelist Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Here you may define a list of whitelist domains that should be allowed.
+    | These domains will be removed from the list of disposable domains.
+    |
+    | Insert as "mydomain.com", without the @ symbol.
+    |
+    */
+
+    'whitelist' => [],
 
     /*
     |--------------------------------------------------------------------------

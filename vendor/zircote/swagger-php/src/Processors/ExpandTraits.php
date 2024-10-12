@@ -8,7 +8,6 @@ namespace OpenApi\Processors;
 
 use OpenApi\Analysis;
 use OpenApi\Annotations as OA;
-use OpenApi\Attributes as OAT;
 use OpenApi\Generator;
 
 /**
@@ -16,14 +15,14 @@ use OpenApi\Generator;
  * - merge trait annotations/methods/properties into the schema if the trait does not have a schema itself
  * - inherit from the trait if it has a schema (allOf).
  */
-class ExpandTraits
+class ExpandTraits implements ProcessorInterface
 {
     use Concerns\MergePropertiesTrait;
 
     public function __invoke(Analysis $analysis)
     {
         /** @var OA\Schema[] $schemas */
-        $schemas = $analysis->getAnnotationsOfType([OA\Schema::class, OAT\Schema::class], true);
+        $schemas = $analysis->getAnnotationsOfType(OA\Schema::class, true);
 
         // do regular trait inheritance / merge
         foreach ($schemas as $schema) {

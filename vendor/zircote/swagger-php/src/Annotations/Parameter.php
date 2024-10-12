@@ -20,9 +20,11 @@ use OpenApi\Generator;
 class Parameter extends AbstractAnnotation
 {
     /**
+     * The relative or absolute path to the endpoint.
+     *
      * @see [Using refs](https://swagger.io/docs/specification/using-ref/)
      *
-     * @var string|object
+     * @var string|class-string|object
      */
     public $ref = Generator::UNDEFINED;
 
@@ -141,19 +143,17 @@ class Parameter extends AbstractAnnotation
      * The example object is mutually exclusive of the examples object.
      * Furthermore, if referencing a schema which contains an example, the example value shall override the example provided by the schema.
      * To represent examples of media types that cannot naturally be represented in JSON or YAML, a string value can contain the example with escaping where necessary.
-     *
-     * @var mixed
      */
     public $example = Generator::UNDEFINED;
 
     /**
-     * Examples of the media type.
+     * Examples of the parameter.
      *
      * Each example should contain a value in the correct format as specified in the parameter encoding.
      * The examples object is mutually exclusive of the example object.
      * Furthermore, if referencing a schema which contains an example, the examples value shall override the example provided by the schema.
      *
-     * @var array<string,Examples>
+     * @var array<Examples>
      */
     public $examples = Generator::UNDEFINED;
 

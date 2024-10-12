@@ -14,7 +14,7 @@ use OpenApi\Generator;
 /**
  * Merge all @OA\OpenApi annotations into one.
  */
-class MergeIntoOpenApi
+class MergeIntoOpenApi implements ProcessorInterface
 {
     public function __invoke(Analysis $analysis)
     {
@@ -45,7 +45,11 @@ class MergeIntoOpenApi
                         $openapi->paths[] = $path;
                     }
                 }
-            } elseif (OA\OpenApi::matchNested(get_class($annotation)) && property_exists($annotation, '_context') && $annotation->_context->is('nested') === false) {
+            } elseif (
+                $annotation instanceof OA\AbstractAnnotation
+                && in_array(OA\OpenApi::class, $annotation::$_parents)
+                && property_exists($annotation, '_context')
+                && false === $annotation->_context->is('nested')) {
                 // A top level annotation.
                 $merge[] = $annotation;
             }

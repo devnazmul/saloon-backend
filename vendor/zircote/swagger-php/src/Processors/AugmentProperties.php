@@ -14,9 +14,10 @@ use OpenApi\Generator;
 /**
  * Use the property context to extract useful information and inject that into the annotation.
  */
-class AugmentProperties
+class AugmentProperties implements ProcessorInterface
 {
     use Concerns\DocblockTrait;
+    use Concerns\RefTrait;
     use Concerns\TypesTrait;
 
     public function __invoke(Analysis $analysis)
@@ -45,47 +46,45 @@ class AugmentProperties
                 continue;
             }
 
-            $comment = str_replace("\r\n", "\n", (string) $context->comment);
-            preg_match('/@var\s+(?<type>[^\s]+)([ \t])?(?<description>.+)?$/im', $comment, $varMatches);
+            $typeAndDescription = $this->extractVarTypeAndDescription((string) $context->comment);
 
             if (Generator::isDefault($property->type)) {
-                $this->augmentType($analysis, $property, $context, $refs, $varMatches);
+                $this->augmentType($analysis, $property, $context, $refs, $typeAndDescription['type']);
             } else {
-                $this->mapNativeType($property, $property->type);
+                if (!is_array($property->type)) {
+                    $this->mapNativeType($property, $property->type);
+                }
             }
 
-            if (Generator::isDefault($property->description) && isset($varMatches['description'])) {
-                $property->description = trim($varMatches['description']);
+            if (Generator::isDefault($property->description) && $typeAndDescription['description']) {
+                $property->description = trim($typeAndDescription['description']);
             }
             if (Generator::isDefault($property->description) && $this->isRoot($property)) {
                 $property->description = $this->extractContent($context->comment);
             }
 
-            if (Generator::isDefault($property->example) && preg_match('/@example\s+([ \t])?(?<example>.+)?$/im', $comment, $varMatches)) {
-                $property->example = $varMatches['example'];
+            if (Generator::isDefault($property->example) && ($example = $this->extractExampleDescription((string) $context->comment))) {
+                $property->example = $example;
+            }
+
+            if (Generator::isDefault($property->deprecated) && ($deprecated = $this->isDeprecated($context->comment))) {
+                $property->deprecated = $deprecated;
             }
         }
     }
 
-    protected function toRefKey(Context $context, ?string $name): string
-    {
-        $fqn = strtolower($context->fullyQualifiedName($name));
-
-        return ltrim($fqn, '\\');
-    }
-
-    protected function augmentType(Analysis $analysis, OA\Property $property, Context $context, array $refs, array $varMatches): void
+    protected function augmentType(Analysis $analysis, OA\Property $property, Context $context, array $refs, ?string $varType): void
     {
         // docblock typehints
-        if (isset($varMatches['type'])) {
-            $allTypes = strtolower(trim($varMatches['type']));
+        if ($varType) {
+            $allTypes = strtolower(trim($varType));
 
             if ($this->isNullable($allTypes) && Generator::isDefault($property->nullable)) {
                 $property->nullable = true;
             }
 
             $allTypes = $this->stripNull($allTypes);
-            preg_match('/^([^\[]+)(.*$)/', $allTypes, $typeMatches);
+            preg_match('/^([^\[\<]+)(.*$)/', $allTypes, $typeMatches);
             $type = $typeMatches[1];
 
             // finalise property type/ref
@@ -97,7 +96,7 @@ class AugmentProperties
             }
 
             // ok, so we possibly have a type or ref
-            if (!Generator::isDefault($property->ref) && $typeMatches[2] === '' && $property->nullable) {
+            if (!Generator::isDefault($property->ref) && $typeMatches[2] === '' && !Generator::isDefault($property->nullable) && $property->nullable) {
                 $refKey = $this->toRefKey($context, $type);
                 $property->oneOf = [
                     $schema = new OA\Schema([
@@ -122,6 +121,34 @@ class AugmentProperties
                     }
                     $property->type = 'array';
                 }
+            } elseif ($property->type === 'integer' && str_starts_with($typeMatches[2], '<') && str_ends_with($typeMatches[2], '>')) {
+                [$min, $max] = explode(',', substr($typeMatches[2], 1, -1));
+
+                if (is_numeric($min)) {
+                    $property->minimum = (int) $min;
+                }
+                if (is_numeric($max)) {
+                    $property->maximum = (int) $max;
+                }
+            } elseif ($type === 'positive-int') {
+                $property->type = 'integer';
+                $property->minimum = 1;
+            } elseif ($type === 'negative-int') {
+                $property->type = 'integer';
+                $property->maximum = -1;
+            } elseif ($type === 'non-positive-int') {
+                $property->type = 'integer';
+                $property->maximum = 0;
+            } elseif ($type === 'non-negative-int') {
+                $property->type = 'integer';
+                $property->minimum = 0;
+            } elseif ($type === 'non-zero-int') {
+                $property->type = 'integer';
+                if ($property->_context->isVersion(OA\OpenApi::VERSION_3_1_0)) {
+                    $property->not = ['const' => 0];
+                } else {
+                    $property->not = ['enum' => [0]];
+                }
             }
         }
 
@@ -136,7 +163,7 @@ class AugmentProperties
                 if (Generator::isDefault($property->ref) && array_key_exists($refKey, $refs)) {
                     $this->applyRef($analysis, $property, $refs[$refKey]);
                 } else {
-                    if ($typeSchema = $analysis->getSchemaForSource($context->type)) {
+                    if (is_string($context->type) && $typeSchema = $analysis->getSchemaForSource($context->type)) {
                         if (Generator::isDefault($property->format)) {
                             $property->ref = OA\Components::ref($typeSchema);
                             $property->type = Generator::UNDEFINED;

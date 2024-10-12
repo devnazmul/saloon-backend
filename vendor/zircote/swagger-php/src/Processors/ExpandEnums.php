@@ -8,15 +8,15 @@ namespace OpenApi\Processors;
 
 use OpenApi\Analysis;
 use OpenApi\Annotations as OA;
-use OpenApi\Attributes as OAT;
 use OpenApi\Generator;
+use OpenApi\OpenApiException;
 
 /**
- * Look at all enums with a schema and:
- * - set the name `schema`
- * - set `enum` values.
+ * Expands PHP enums.
+ *
+ * Determines `schema`, `enum` and `type`.
  */
-class ExpandEnums
+class ExpandEnums implements ProcessorInterface
 {
     use Concerns\TypesTrait;
 
@@ -30,47 +30,43 @@ class ExpandEnums
         $this->expandSchemaEnum($analysis);
     }
 
-    private function expandContextEnum(Analysis $analysis): void
+    protected function expandContextEnum(Analysis $analysis): void
     {
         /** @var OA\Schema[] $schemas */
-        $schemas = $analysis->getAnnotationsOfType([OA\Schema::class, OAT\Schema::class], true);
+        $schemas = $analysis->getAnnotationsOfType(OA\Schema::class, true);
 
         foreach ($schemas as $schema) {
             if ($schema->_context->is('enum')) {
-                $source = $schema->_context->enum;
-                $re = new \ReflectionEnum($schema->_context->fullyQualifiedName($source));
+                $re = new \ReflectionEnum($schema->_context->fullyQualifiedName($schema->_context->enum));
                 $schema->schema = !Generator::isDefault($schema->schema) ? $schema->schema : $re->getShortName();
-                $type = 'string';
-                $schemaType = 'string';
-                if ($re->isBacked() && ($backingType = $re->getBackingType()) && method_exists($backingType, 'getName')) {
-                    if (Generator::isDefault($schema->type)) {
-                        $type = $backingType->getName();
-                    } else {
-                        $type = $schema->type;
-                        $schemaType = $schema->type;
+
+                $schemaType = $schema->type;
+                $enumType = null;
+                if ($re->isBacked()) {
+                    $backingType = $re->getBackingType();
+                    if ($backingType instanceof \ReflectionNamedType) {
+                        $enumType = $backingType->getName();
                     }
                 }
-                $schema->enum = array_map(function ($case) use ($re, $schemaType, $type) {
-                    if ($re->isBacked() && $type === $schemaType) {
-                        return $case->getBackingValue();
-                    }
 
-                    return $case->name;
+                // no (or invalid) schema type means name
+                $useName = Generator::isDefault($schemaType) || ($enumType && $this->native2spec($enumType) != $schemaType);
+
+                $schema->enum = array_map(function ($case) use ($useName) {
+                    return ($useName || !($case instanceof \ReflectionEnumBackedCase)) ? $case->name : $case->getBackingValue();
                 }, $re->getCases());
-                $this->mapNativeType($schema, $type);
+
+                $schema->type = $useName ? 'string' : $enumType;
+
+                $this->mapNativeType($schema, $schemaType);
             }
         }
     }
 
-    private function expandSchemaEnum(Analysis $analysis): void
+    protected function expandSchemaEnum(Analysis $analysis): void
     {
         /** @var OA\Schema[] $schemas */
-        $schemas = $analysis->getAnnotationsOfType([
-            OA\Schema::class,
-            OAT\Schema::class,
-            OA\ServerVariable::class,
-            OAT\ServerVariable::class,
-        ]);
+        $schemas = $analysis->getAnnotationsOfType([OA\Schema::class, OA\ServerVariable::class]);
 
         foreach ($schemas as $schema) {
             if (Generator::isDefault($schema->enum)) {
@@ -78,21 +74,32 @@ class ExpandEnums
             }
 
             if (is_string($schema->enum)) {
-                // might be enum class
+                // might be enum class-string
                 if (is_a($schema->enum, \UnitEnum::class, true)) {
-                    $source = $schema->enum::cases();
+                    $cases = $schema->enum::cases();
                 } else {
-                    throw new \InvalidArgumentException("Unexpected enum value, requires specifying the Enum class string: $schema->enum");
+                    throw new OpenApiException("Unexpected enum value, requires specifying the Enum class string: $schema->enum");
                 }
-            } elseif (is_array($schema->enum)) {
-                // might be array of enum, string, int, etc...
-                $source = $schema->enum;
             } else {
-                throw new \InvalidArgumentException('Unexpected enum value, requires Enum class string or array');
+                // might be an array of \UnitEnum::class, string, int, etc...
+                assert(is_array($schema->enum));
+
+                $cases = [];
+
+                // transform each Enum cases into UnitEnum
+                foreach ($schema->enum as $enum) {
+                    if (is_string($enum) && function_exists('enum_exists') && enum_exists($enum)) {
+                        foreach ($enum::cases() as $case) {
+                            $cases[] = $case;
+                        }
+                    } else {
+                        $cases[] = $enum;
+                    }
+                }
             }
 
             $enums = [];
-            foreach ($source as $enum) {
+            foreach ($cases as $enum) {
                 if (is_a($enum, \UnitEnum::class)) {
                     $enums[] = $enum->value ?? $enum->name;
                 } else {

@@ -3,6 +3,7 @@
 namespace Propaganistas\LaravelDisposableEmail;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Factory;
 use Propaganistas\LaravelDisposableEmail\Console\UpdateDisposableDomainsCommand;
 use Propaganistas\LaravelDisposableEmail\Validation\Indisposable;
 
@@ -30,7 +31,9 @@ class DisposableEmailServiceProvider extends ServiceProvider
             $this->config => config_path('disposable-email.php'),
         ], 'laravel-disposable-email');
 
-        $this->app['validator']->extend('indisposable', Indisposable::class.'@validate', Indisposable::$errorMessage);
+        $this->callAfterResolving('validator', function (Factory $validator) {
+            $validator->extend('indisposable', Indisposable::class.'@validate', Indisposable::$errorMessage);
+        });
     }
 
     /**
@@ -53,6 +56,7 @@ class DisposableEmailServiceProvider extends ServiceProvider
 
             $instance->setStoragePath($app['config']['disposable-email.storage']);
             $instance->setCacheKey($app['config']['disposable-email.cache.key']);
+            $instance->setWhitelist($app['config']['disposable-email.whitelist']);
 
             return $instance->bootstrap();
         });

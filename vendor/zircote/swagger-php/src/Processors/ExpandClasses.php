@@ -8,7 +8,6 @@ namespace OpenApi\Processors;
 
 use OpenApi\Analysis;
 use OpenApi\Annotations as OA;
-use OpenApi\Attributes as OAT;
 use OpenApi\Generator;
 
 /**
@@ -18,14 +17,14 @@ use OpenApi\Generator;
  * - else
  *   => merge ancestor properties into the schema.
  */
-class ExpandClasses
+class ExpandClasses implements ProcessorInterface
 {
     use Concerns\MergePropertiesTrait;
 
     public function __invoke(Analysis $analysis)
     {
         /** @var OA\Schema[] $schemas */
-        $schemas = $analysis->getAnnotationsOfType([OA\Schema::class, OAT\Schema::class], true);
+        $schemas = $analysis->getAnnotationsOfType(OA\Schema::class, true);
 
         foreach ($schemas as $schema) {
             if ($schema->_context->is('class')) {

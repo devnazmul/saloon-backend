@@ -8,6 +8,8 @@ namespace OpenApi\Annotations;
 
 use OpenApi\Context;
 use OpenApi\Generator;
+use OpenApi\Annotations as OA;
+use OpenApi\OpenApiException;
 use OpenApi\Util;
 use Symfony\Component\Yaml\Yaml;
 
@@ -48,7 +50,7 @@ abstract class AbstractAnnotation implements \JsonSerializable
     /**
      * The properties which are required by [the spec](https://github.com/OAI/OpenAPI-Specification/blob/main/versions/3.1.0.md).
      *
-     * @var array
+     * @var string[]
      */
     public static $_required = [];
 
@@ -99,7 +101,7 @@ abstract class AbstractAnnotation implements \JsonSerializable
         } elseif (Generator::$context) {
             $this->_context = Generator::$context;
         } else {
-            $this->_context = Context::detect(1);
+            $this->_context = new Context(['generated' => true]);
         }
 
         if ($this->_context->is('annotations') === false) {
@@ -133,7 +135,7 @@ abstract class AbstractAnnotation implements \JsonSerializable
             } elseif (is_object($value)) {
                 $this->merge([$value]);
             } else {
-                if ($value !== Generator::UNDEFINED) {
+                if (!Generator::isDefault($value)) {
                     $this->_context->logger->warning('Unexpected parameter "' . $property . '" in ' . $this->identity());
                 }
             }
@@ -155,17 +157,13 @@ abstract class AbstractAnnotation implements \JsonSerializable
         $this->_context->logger->warning('Property "' . $property . '" doesn\'t exist in a ' . $this->identity() . ', existing properties: "' . implode('", "', array_keys($properties)) . '" in ' . $this->_context);
     }
 
-    /**
-     * @param mixed $value
-     */
     public function __set(string $property, $value): void
     {
         $fields = get_object_vars($this);
         foreach (static::$_blacklist as $_property) {
             unset($fields[$_property]);
         }
-        $this->_context->logger->warning('Unexpected field "' . $property . '" for ' . $this->identity() . ', expecting "' . implode('", "', array_keys($fields)) . '" in ' . $this->_context);
-        $this->{$property} = $value;
+        $this->_context->logger->warning('Ignoring unexpected property "' . $property . '" for ' . $this->identity() . ', expecting "' . implode('", "', array_keys($fields)) . '" in ' . $this->_context);
     }
 
     /**
@@ -185,7 +183,7 @@ abstract class AbstractAnnotation implements \JsonSerializable
 
         foreach ($annotations as $annotation) {
             $mapped = false;
-            if ($details = static::matchNested(get_class($annotation))) {
+            if ($details = $this->matchNested($annotation)) {
                 $property = $details->value;
                 if (is_array($property)) {
                     $property = $property[0];
@@ -221,13 +219,13 @@ abstract class AbstractAnnotation implements \JsonSerializable
      */
     public function mergeProperties($object): void
     {
-        $defaultValues = get_class_vars(get_class($this));
         $currentValues = get_object_vars($this);
         foreach ($object as $property => $value) {
             if ($property === '_context') {
                 continue;
             }
-            if ($currentValues[$property] === $defaultValues[$property]) { // Overwrite default values
+            if (Generator::isDefault($currentValues[$property])) {
+                // Overwrite default values
                 $this->{$property} = $value;
                 continue;
             }
@@ -235,9 +233,10 @@ abstract class AbstractAnnotation implements \JsonSerializable
                 $this->_unmerged = array_merge($this->_unmerged, $value);
                 continue;
             }
-            if ($currentValues[$property] !== $value) { // New value is not the same?
-                if ($defaultValues[$property] === $value) { // but is the same as the default?
-                    continue; // Keep current, no notice
+            if ($currentValues[$property] !== $value) {
+                // New value is not the same?
+                if (Generator::isDefault($value)) {
+                    continue;
                 }
                 $identity = method_exists($object, 'identity') ? $object->identity() : get_class($object);
                 $context1 = $this->_context;
@@ -355,26 +354,81 @@ abstract class AbstractAnnotation implements \JsonSerializable
         if (isset($data->ref)) {
             // Only specific https://github.com/OAI/OpenAPI-Specification/blob/3.1.0/versions/3.1.0.md#reference-object
             $ref = ['$ref' => $data->ref];
-            if ($this->_context->version == OpenApi::VERSION_3_1_0) {
-                $defaultValues = get_class_vars(get_class($this));
+            if ($this->_context->isVersion(OpenApi::VERSION_3_1_0)) {
                 foreach (['summary', 'description'] as $prop) {
                     if (property_exists($this, $prop)) {
-                        if ($this->{$prop} !== $defaultValues[$prop]) {
+                        if (!Generator::isDefault($this->{$prop})) {
                             $ref[$prop] = $data->{$prop};
                         }
+                    }
+                }
+            }
+            if (property_exists($this, 'nullable') && $this->nullable === true) {
+                $ref = ['oneOf' => [$ref]];
+                if ($this->_context->isVersion(OpenApi::VERSION_3_1_0)) {
+                    $ref['oneOf'][] = ['type' => 'null'];
+                } else {
+                    $ref['nullable'] = $data->nullable;
+                }
+                unset($data->nullable);
+
+                // preserve other properties
+                foreach (get_object_vars($this) as $property => $value) {
+                    if ('_' == $property[0] || in_array($property, ['ref', 'nullable'])) {
+                        continue;
+                    }
+                    if (!Generator::isDefault($value)) {
+                        $ref[$property] = $value;
                     }
                 }
             }
             $data = (object) $ref;
         }
 
-        if ($this->_context->version == OpenApi::VERSION_3_1_0) {
+        if ($this->_context->isVersion(OpenApi::VERSION_3_0_0)) {
+            if (isset($data->exclusiveMinimum) && is_numeric($data->exclusiveMinimum)) {
+                $data->minimum = $data->exclusiveMinimum;
+                $data->exclusiveMinimum = true;
+            }
+            if (isset($data->exclusiveMaximum) && is_numeric($data->exclusiveMaximum)) {
+                $data->maximum = $data->exclusiveMaximum;
+                $data->exclusiveMaximum = true;
+            }
+        }
+
+        if ($this->_context->isVersion(OpenApi::VERSION_3_1_0)) {
             if (isset($data->nullable)) {
                 if (true === $data->nullable) {
-                    $data->type = (array) $data->type;
-                    $data->type[] = 'null';
+                    if (isset($data->oneOf)) {
+                        $data->oneOf[] = ['type' => 'null'];
+                    } elseif (isset($data->anyOf)) {
+                        $data->anyOf[] = ['type' => 'null'];
+                    } elseif (isset($data->allOf)) {
+                        $data->allOf[] = ['type' => 'null'];
+                    } else {
+                        $data->type = (array) $data->type;
+                        $data->type[] = 'null';
+                    }
                 }
                 unset($data->nullable);
+            }
+
+            if (isset($data->minimum) && isset($data->exclusiveMinimum)) {
+                if (true === $data->exclusiveMinimum) {
+                    $data->exclusiveMinimum = $data->minimum;
+                    unset($data->minimum);
+                } elseif (false === $data->exclusiveMinimum) {
+                    unset($data->exclusiveMinimum);
+                }
+            }
+
+            if (isset($data->maximum) && isset($data->exclusiveMaximum)) {
+                if (true === $data->exclusiveMaximum) {
+                    $data->exclusiveMaximum = $data->maximum;
+                    unset($data->maximum);
+                } elseif (false === $data->exclusiveMaximum) {
+                    unset($data->exclusiveMaximum);
+                }
             }
         }
 
@@ -406,7 +460,7 @@ abstract class AbstractAnnotation implements \JsonSerializable
 
             /** @var class-string<AbstractAnnotation> $class */
             $class = get_class($annotation);
-            if ($details = static::matchNested($class)) {
+            if ($details = $this->matchNested($annotation)) {
                 $property = $details->value;
                 if (is_array($property)) {
                     $this->_context->logger->warning('Only one ' . Util::shorten(get_class($annotation)) . '() allowed for ' . $this->identity() . ' multiple found, skipped: ' . $annotation->_context);
@@ -496,10 +550,17 @@ abstract class AbstractAnnotation implements \JsonSerializable
                     $this->_context->logger->warning($this->identity() . '->' . $property . ' "' . $value . '" is invalid, expecting "' . implode('", "', $type) . '" in ' . $this->_context);
                 }
             } else {
-                throw new \Exception('Invalid ' . get_class($this) . '::$_types[' . $property . ']');
+                throw new OpenApiException('Invalid ' . get_class($this) . '::$_types[' . $property . ']');
             }
         }
         $stack[] = $this;
+
+        if (property_exists($this, 'example') && property_exists($this, 'examples')) {
+            if (!Generator::isDefault($this->example) && !Generator::isDefault($this->examples)) {
+                $valid = false;
+                $this->_context->logger->warning($this->identity() . ': "example" and "examples" are mutually exclusive');
+            }
+        }
 
         return self::_validate($this, $stack, $skip, $ref, $context) ? $valid : false;
     }
@@ -564,27 +625,50 @@ abstract class AbstractAnnotation implements \JsonSerializable
     }
 
     /**
-     * Find matching nested details.
+     * Check if `$other` can be nested and if so return details about where/how.
      *
-     * @param string $class the class to match
+     * @param AbstractAnnotation $other the other annotation
      *
      * @return null|object key/value object or `null`
      */
-    public static function matchNested(string $class)
+    public function matchNested($other)
     {
-        if (array_key_exists($class, static::$_nested)) {
-            return (object) ['key' => $class, 'value' => static::$_nested[$class]];
-        }
-
-        $parent = $class;
-        // only consider the immediate OpenApi parent
-        while (0 !== strpos($parent, 'OpenApi\\Annotations\\') && $parent = get_parent_class($parent)) {
-            if ($kvp = static::matchNested($parent)) {
-                return $kvp;
-            }
+        if ($other instanceof AbstractAnnotation && array_key_exists($root = $other->getRoot(), static::$_nested)) {
+            return (object) ['key' => $root, 'value' => static::$_nested[$root]];
         }
 
         return null;
+    }
+
+    /**
+     * Get the root annotation.
+     *
+     * This is used for resolving type equality and nesting rules to allow those rules to also work for custom,
+     * derived annotation classes.
+     *
+     * @return class-string the root annotation class in the `OpenApi\\Annotations` namespace
+     */
+    public function getRoot(): string
+    {
+        $class = get_class($this);
+
+        do {
+            if (0 === strpos($class, 'OpenApi\\Annotations\\')) {
+                break;
+            }
+        } while ($class = get_parent_class($class));
+
+        return $class;
+    }
+
+    /**
+     * Match the annotation root.
+     *
+     * @param class-string $rootClass the root class to match
+     */
+    public function isRoot(string $rootClass): bool
+    {
+        return get_class($this) == $rootClass || $this->getRoot() == $rootClass;
     }
 
     /**
@@ -640,6 +724,17 @@ abstract class AbstractAnnotation implements \JsonSerializable
      */
     private function validateDefaultTypes(string $type, $value): bool
     {
+        if (str_contains($type, '|')) {
+            $types = explode('|', $type);
+            foreach ($types as $type) {
+                if ($this->validateDefaultTypes($type, $value)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         switch ($type) {
             case 'string':
                 return is_string($value);
@@ -656,14 +751,12 @@ abstract class AbstractAnnotation implements \JsonSerializable
             case 'scheme':
                 return in_array($value, ['http', 'https', 'ws', 'wss'], true);
             default:
-                throw new \Exception('Invalid type "' . $type . '"');
+                throw new OpenApiException('Invalid type "' . $type . '"');
         }
     }
 
     /**
      * Validate array type.
-     *
-     * @param mixed $value
      */
     private function validateArrayType($value): bool
     {
@@ -685,7 +778,6 @@ abstract class AbstractAnnotation implements \JsonSerializable
     /**
      * Wrap the context with a reference to the annotation it is nested in.
      *
-     * @param AbstractAnnotation $annotation
      *
      * @return AbstractAnnotation
      */

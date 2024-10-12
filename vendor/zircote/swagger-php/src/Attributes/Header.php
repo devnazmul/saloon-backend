@@ -6,13 +6,15 @@
 namespace OpenApi\Attributes;
 
 use OpenApi\Generator;
+use OpenApi\Annotations as OA;
 
 #[\Attribute(\Attribute::TARGET_CLASS | \Attribute::TARGET_METHOD | \Attribute::IS_REPEATABLE)]
-class Header extends \OpenApi\Annotations\Header
+class Header extends OA\Header
 {
     /**
-     * @param array<string,mixed>|null $x
-     * @param Attachable[]|null        $attachables
+     * @param string|class-string|object|null $ref
+     * @param array<string,mixed>|null        $x
+     * @param Attachable[]|null               $attachables
      */
     public function __construct(
         string|object|null $ref = null,

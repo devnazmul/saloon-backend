@@ -16,15 +16,28 @@ use OpenApi\Generator;
  *
  * Merges properties.
  */
-class AugmentSchemas
+class AugmentSchemas implements ProcessorInterface
 {
     public function __invoke(Analysis $analysis)
     {
         /** @var OA\Schema[] $schemas */
         $schemas = $analysis->getAnnotationsOfType(OA\Schema::class);
 
-        // Use the class names for @OA\Schema()
+        $this->augmentSchema($schemas);
+        $this->mergeUnmergedProperties($analysis);
+        $this->augmentType($analysis, $schemas);
+        $this->mergeAllOf($analysis, $schemas);
+    }
+
+    /**
+     * @param array<OA\Schema> $schemas
+     */
+    protected function augmentSchema(array $schemas): void
+    {
         foreach ($schemas as $schema) {
+            if (!$schema->isRoot(OA\Schema::class)) {
+                continue;
+            }
             if (Generator::isDefault($schema->schema)) {
                 if ($schema->_context->is('class')) {
                     $schema->schema = $schema->_context->class;
@@ -37,7 +50,13 @@ class AugmentSchemas
                 }
             }
         }
+    }
 
+    /**
+     * Merge unmerged @OA\Property annotations into the @OA\Schema of the class.
+     */
+    protected function mergeUnmergedProperties(Analysis $analysis): void
+    {
         // Merge unmerged @OA\Property annotations into the @OA\Schema of the class
         $unmergedProperties = $analysis->unmerged()->getAnnotationsOfType(OA\Property::class);
         foreach ($unmergedProperties as $property) {
@@ -46,9 +65,9 @@ class AugmentSchemas
             }
 
             $schemaContext = $property->_context->with('class')
-                    ?: $property->_context->with('interface')
+                ?: $property->_context->with('interface')
                     ?: $property->_context->with('trait')
-                    ?: $property->_context->with('enum');
+                        ?: $property->_context->with('enum');
             if ($schemaContext->annotations) {
                 foreach ($schemaContext->annotations as $annotation) {
                     if ($annotation instanceof OA\Schema) {
@@ -63,8 +82,15 @@ class AugmentSchemas
                 }
             }
         }
+    }
 
-        // set schema type based on various properties
+    /**
+     * Set schema type based on various properties.
+     *
+     * @param array<OA\Schema> $schemas
+     */
+    protected function augmentType(Analysis $analysis, array $schemas): void
+    {
         foreach ($schemas as $schema) {
             if (Generator::isDefault($schema->type)) {
                 if (is_array($schema->properties) && count($schema->properties) > 0) {
@@ -77,7 +103,7 @@ class AugmentSchemas
                     $schema->type = 'object';
                 }
             } else {
-                if ($typeSchema = $analysis->getSchemaForSource($schema->type)) {
+                if (is_string($schema->type) && $typeSchema = $analysis->getSchemaForSource($schema->type)) {
                     if (Generator::isDefault($schema->format)) {
                         $schema->ref = OA\Components::ref($typeSchema);
                         $schema->type = Generator::UNDEFINED;
@@ -85,8 +111,15 @@ class AugmentSchemas
                 }
             }
         }
+    }
 
-        // move schema properties into allOf if both exist
+    /**
+     * Merge schema properties into `allOf` if both exist.
+     *
+     * @param array<OA\Schema> $schemas
+     */
+    protected function mergeAllOf(Analysis $analysis, array $schemas): void
+    {
         foreach ($schemas as $schema) {
             if (!Generator::isDefault($schema->properties) && !Generator::isDefault($schema->allOf)) {
                 $allOfPropertiesSchema = null;
@@ -99,6 +132,7 @@ class AugmentSchemas
                 if (!$allOfPropertiesSchema) {
                     $allOfPropertiesSchema = new OA\Schema([
                         'properties' => [],
+                        'type' => 'object',
                         '_context' => new Context(['generated' => true], $schema->_context),
                     ]);
                     $analysis->addAnnotation($allOfPropertiesSchema, $allOfPropertiesSchema->_context);

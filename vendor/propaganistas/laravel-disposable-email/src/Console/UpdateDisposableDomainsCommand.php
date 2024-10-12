@@ -2,8 +2,8 @@
 
 namespace Propaganistas\LaravelDisposableEmail\Console;
 
-use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Config\Repository as Config;
 use Propaganistas\LaravelDisposableEmail\Contracts\Fetcher;
 use Propaganistas\LaravelDisposableEmail\DisposableDomains;
 
@@ -26,9 +26,7 @@ class UpdateDisposableDomainsCommand extends Command
     /**
      * Execute the console command.
      *
-     * @param  \Illuminate\Contracts\Config\Repository  $config
-     * @param  \Propaganistas\LaravelDisposableEmail\DisposableDomains  $disposable
-     * @return  void
+     * @return int
      */
     public function handle(Config $config, DisposableDomains $disposable)
     {
@@ -39,23 +37,42 @@ class UpdateDisposableDomainsCommand extends Command
         );
 
         if (! $fetcher instanceof Fetcher) {
-            $this->error($fetcherClass . ' should implement ' . Fetcher::class);
-            return 1;
+            $this->error($fetcherClass.' should implement '.Fetcher::class);
+
+            return Command::FAILURE;
         }
 
-        $data = $this->laravel->call([$fetcher, 'handle'], [
-            'url' => $config->get('disposable-email.source'),
-        ]);
+        $sources = $config->get('disposable-email.sources');
+
+        if (! $sources && $config->get('disposable-email.source')) {
+            $sources = [$config->get('disposable-email.source')];
+        }
+
+        if (! is_array($sources)) {
+            $this->error('Source URLs should be defined in an array');
+
+            return Command::FAILURE;
+        }
+
+        $data = [];
+        foreach ($sources as $source) {
+            $data = array_merge($data, $this->laravel->call([$fetcher, 'handle'], [
+                'url' => $source,
+            ]));
+        }
 
         $this->line('Saving response to storage...');
 
-        if ($disposable->saveToStorage($data)) {
-            $this->info('Disposable domains list updated successfully.');
-            $disposable->bootstrap();
-            return 0;
-        } else {
+        if (! $disposable->saveToStorage($data)) {
             $this->error('Could not write to storage ('.$disposable->getStoragePath().')!');
-            return 1;
+
+            return Command::FAILURE;
         }
+
+        $this->info('Disposable domains list updated successfully.');
+
+        $disposable->bootstrap();
+
+        return Command::SUCCESS;
     }
 }

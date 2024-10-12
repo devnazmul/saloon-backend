@@ -26,10 +26,20 @@ class DocBlockParser
      */
     public function __construct(array $aliases = [])
     {
-        $docParser = new DocParser();
-        $docParser->setIgnoreNotImportedAnnotations(true);
-        $docParser->setImports($aliases);
-        $this->docParser = $docParser;
+        if (DocBlockParser::isEnabled()) {
+            $docParser = new DocParser();
+            $docParser->setIgnoreNotImportedAnnotations(true);
+            $docParser->setImports($aliases);
+            $this->docParser = $docParser;
+        }
+    }
+
+    /**
+     * Check if we can process annotations.
+     */
+    public static function isEnabled(): bool
+    {
+        return class_exists('Doctrine\\Common\\Annotations\\DocParser');
     }
 
     /**
@@ -43,10 +53,9 @@ class DocBlockParser
     /**
      * Use doctrine to parse the comment block and return the detected annotations.
      *
-     * @param string  $comment a T_DOC_COMMENT
-     * @param Context $context
+     * @param string $comment a T_DOC_COMMENT
      *
-     * @return array<OA\AbstractAnnotation>
+     * @return array<OA\AbstractAnnotation|object>
      */
     public function fromComment(string $comment, Context $context): array
     {
@@ -64,7 +73,7 @@ class DocBlockParser
                 $errorMessage = $matches[1];
                 $errorPos = (int) $matches[2];
                 $atPos = strpos($comment, '@');
-                $context->line += substr_count($comment, "\n", 0, $atPos + $errorPos);
+                $context->line -= substr_count($comment, "\n", $atPos + $errorPos) + 1;
                 $lines = explode("\n", substr($comment, $atPos, $errorPos));
                 $context->character = strlen(array_pop($lines)) + 1; // position starts at 0 character starts at 1
                 $context->logger->error($errorMessage . ' in ' . $context, ['exception' => $e]);

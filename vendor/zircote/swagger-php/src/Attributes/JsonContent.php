@@ -7,22 +7,25 @@
 namespace OpenApi\Attributes;
 
 use OpenApi\Generator;
+use OpenApi\Annotations as OA;
 
 #[\Attribute(\Attribute::TARGET_CLASS)]
-class JsonContent extends \OpenApi\Annotations\JsonContent
+class JsonContent extends OA\JsonContent
 {
     /**
-     * @param array<string,Examples>                          $examples
-     * @param string[]                                        $required
-     * @param Property[]                                      $properties
-     * @param int|float                                       $maximum
-     * @param int|float                                       $minimum
-     * @param string[]|int[]|float[]|\UnitEnum[]|class-string $enum
-     * @param array<Schema|\OpenApi\Annotations\Schema>       $allOf
-     * @param array<Schema|\OpenApi\Annotations\Schema>       $anyOf
-     * @param array<Schema|\OpenApi\Annotations\Schema>       $oneOf
-     * @param array<string,mixed>|null                        $x
-     * @param Attachable[]|null                               $attachables
+     * @param string|non-empty-array<string>|null                           $type
+     * @param string|class-string|object|null                               $ref
+     * @param array<Examples>                                               $examples
+     * @param string[]                                                      $required
+     * @param Property[]                                                    $properties
+     * @param int|float                                                     $maximum
+     * @param int|float                                                     $minimum
+     * @param array<string|int|float|bool|\UnitEnum|null>|class-string|null $enum
+     * @param array<Schema|OA\Schema>                                       $allOf
+     * @param array<Schema|OA\Schema>                                       $anyOf
+     * @param array<Schema|OA\Schema>                                       $oneOf
+     * @param array<string,mixed>|null                                      $x
+     * @param Attachable[]|null                                             $attachables
      */
     public function __construct(
         ?array $examples = null,
@@ -31,17 +34,19 @@ class JsonContent extends \OpenApi\Annotations\JsonContent
         ?string $schema = null,
         ?string $title = null,
         ?string $description = null,
+        ?int $maxProperties = null,
+        ?int $minProperties = null,
         ?array $required = null,
         ?array $properties = null,
-        ?string $type = null,
+        string|array|null $type = null,
         ?string $format = null,
         ?Items $items = null,
         ?string $collectionFormat = null,
         mixed $default = Generator::UNDEFINED,
         $maximum = null,
-        ?bool $exclusiveMaximum = null,
+        bool|int|float|null $exclusiveMaximum = null,
         $minimum = null,
-        ?bool $exclusiveMinimum = null,
+        bool|int|float|null $exclusiveMinimum = null,
         ?int $maxLength = null,
         ?int $minLength = null,
         ?int $maxItems = null,
@@ -72,6 +77,8 @@ class JsonContent extends \OpenApi\Annotations\JsonContent
             'schema' => $schema ?? Generator::UNDEFINED,
             'title' => $title ?? Generator::UNDEFINED,
             'description' => $description ?? Generator::UNDEFINED,
+            'maxProperties' => $maxProperties ?? Generator::UNDEFINED,
+            'minProperties' => $minProperties ?? Generator::UNDEFINED,
             'required' => $required ?? Generator::UNDEFINED,
             'properties' => $properties ?? Generator::UNDEFINED,
             'type' => $type ?? Generator::UNDEFINED,
